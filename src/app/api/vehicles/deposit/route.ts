@@ -109,7 +109,9 @@ async function handler(request: NextRequest, _context: any, user: any) {
 
     return apiResponse(payment, 201);
   } catch (error: any) {
-    console.error('Vehicle deposit error:', error);
+    console.error('[VEHICLE DEPOSIT] Full error:', error);
+    console.error('[VEHICLE DEPOSIT] Error code:', error?.code);
+    console.error('[VEHICLE DEPOSIT] Error message:', error?.message);
     return apiError('Internal server error', 'INTERNAL_ERROR', 500);
   }
 }

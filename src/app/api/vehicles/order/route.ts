@@ -180,7 +180,19 @@ async function handler(request: NextRequest, _context: any, user: any) {
 
     return apiResponse(order, 201);
   } catch (error: any) {
-    console.error('Create vehicle order error:', error);
+    console.error('[VEHICLE ORDER] Full error:', error);
+    console.error('[VEHICLE ORDER] Error code:', error?.code);
+    console.error('[VEHICLE ORDER] Error message:', error?.message);
+    if (error?.code === 'P2002') {
+      return apiError('Duplicate order detected. Please check your orders.', 'DUPLICATE', 409);
+    }
+    if (error?.code === 'P2025') {
+      return apiError('Related record not found (vehicle or user). Please try again.', 'NOT_FOUND', 404);
+    }
+    if (error?.message?.includes('Unknown field') || error?.message?.includes('Column')) {
+      console.error('[VEHICLE ORDER] Possible schema mismatch — run prisma db push');
+      return apiError('Service configuration error. Please contact support.', 'SCHEMA_ERROR', 500);
+    }
     return apiError('Internal server error', 'INTERNAL_ERROR', 500);
   }
 }

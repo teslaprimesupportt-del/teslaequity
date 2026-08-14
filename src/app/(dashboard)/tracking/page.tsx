@@ -4,12 +4,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 
 const STATUS_STEPS = [
-  { value: 'pending', label: 'Order Placed', color: 'text-yellow-400', bg: 'bg-yellow-400', border: 'border-yellow-400', glow: 'shadow-yellow-400/40' },
-  { value: 'confirmed', label: 'Confirmed', color: 'text-blue-400', bg: 'bg-blue-400', border: 'border-blue-400', glow: 'shadow-blue-400/40' },
-  { value: 'in_production', label: 'In Production', color: 'text-orange-400', bg: 'bg-orange-400', border: 'border-orange-400', glow: 'shadow-orange-400/40' },
-  { value: 'shipped', label: 'Shipped', color: 'text-purple-400', bg: 'bg-purple-400', border: 'border-purple-400', glow: 'shadow-purple-400/40' },
-  { value: 'delivered', label: 'Delivered', color: 'text-green-400', bg: 'bg-green-400', border: 'border-green-400', glow: 'shadow-green-400/40' },
+  { value: 'pending', label: 'Order Placed', icon: 'clipboard', color: 'text-yellow-400', bg: 'bg-yellow-400', border: 'border-yellow-400', glow: 'shadow-yellow-400/40' },
+  { value: 'confirmed', label: 'Confirmed', icon: 'check-circle', color: 'text-blue-400', bg: 'bg-blue-400', border: 'border-blue-400', glow: 'shadow-blue-400/40' },
+  { value: 'in_production', label: 'In Production', icon: 'factory', color: 'text-orange-400', bg: 'bg-orange-400', border: 'border-orange-400', glow: 'shadow-orange-400/40' },
+  { value: 'shipped', label: 'Shipped', icon: 'truck', color: 'text-purple-400', bg: 'bg-purple-400', border: 'border-purple-400', glow: 'shadow-purple-400/40' },
+  { value: 'delivered', label: 'Delivered', icon: 'flag', color: 'text-green-400', bg: 'bg-green-400', border: 'border-green-400', glow: 'shadow-green-400/40' },
 ];
+
+const MILESTONE_DETAILS: Record<string, { description: string; duration: string }> = {
+  pending: { description: 'Your order has been received and is awaiting confirmation by our team.', duration: '1-2 business days' },
+  confirmed: { description: 'Order confirmed! Your deposit has been verified and production slot reserved.', duration: '1-3 business days' },
+  in_production: { description: 'Your Tesla is being built at the factory with your selected configuration.', duration: '2-6 weeks' },
+  shipped: { description: 'Your vehicle is on its way! Track the delivery truck in real-time.', duration: '3-14 business days' },
+  delivered: { description: 'Your Tesla has arrived at the delivery address. Enjoy the ride!', duration: 'Completed' },
+};
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
@@ -31,6 +39,14 @@ const COLOR_LABELS: Record<string, string> = {
   quick_silver: 'Quick Silver', blue_multi_coat: 'Blue Multi-Coat',
 };
 
+const STATUS_ICON_SVG: Record<string, string> = {
+  clipboard: '<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+  'check-circle': '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  factory: '<path d="M2 20h20"/><path d="M5 20V8l7-5 7 5v12"/><rect x="9" y="12" width="6" height="8"/>',
+  truck: '<rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+};
+
 export default function TrackingPage() {
   const { token } = useAuthStore();
   const [orderNumber, setOrderNumber] = useState('');
@@ -40,6 +56,7 @@ export default function TrackingPage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [animatedProgress, setAnimatedProgress] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   const fetchTracking = useCallback(async (code?: string) => {
     const num = (code || orderNumber).trim();
@@ -51,11 +68,18 @@ export default function TrackingPage() {
         headers: token ? { Authorization: 'Bearer ' + token } : {},
       });
       const json = await res.json();
-      if (json.success) { setTrackingData(json.data); }
+      if (json.success) { setTrackingData(json.data); setElapsed(0); }
       else { setError(json.error?.message || 'Tracking failed'); setTrackingData(null); }
     } catch { setError('Network error. Please try again.'); setTrackingData(null); }
     setLoading(false);
   }, [orderNumber, token]);
+
+  // Auto-detect order number from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) { setOrderNumber(code); fetchTracking(code); }
+  }, []);
 
   const handleTrack = () => fetchTracking();
   const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === 'Enter') handleTrack(); };
@@ -73,12 +97,14 @@ export default function TrackingPage() {
     return Math.ceil(diff / 86400000);
   };
 
+  // Auto-refresh every 30s
   useEffect(() => {
     if (!autoRefresh || !orderNumber.trim()) return;
     const interval = setInterval(() => fetchTracking(), 30000);
     return () => clearInterval(interval);
   }, [autoRefresh, fetchTracking, orderNumber]);
 
+  // Animate progress bar
   useEffect(() => {
     if (!trackingData?.tracking?.progress) { setAnimatedProgress(0); return; }
     const target = trackingData.tracking.progress;
@@ -93,13 +119,28 @@ export default function TrackingPage() {
     requestAnimationFrame(animate);
   }, [trackingData?.tracking?.progress]);
 
+  // Elapsed time counter since last tracking fetch
+  useEffect(() => {
+    if (!trackingData || !autoRefresh) return;
+    const timer = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(timer);
+  }, [trackingData, autoRefresh]);
+
+  const formatElapsed = (s: number) => {
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+  };
+
   const order = trackingData?.order;
   const tracking = trackingData?.tracking;
 
+  const currentMilestone = MILESTONE_DETAILS[order?.status] || null;
+
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-5 pb-8">
       {/* Search Card */}
-      <div className="bg-tesla-card border border-tesla-border rounded-2xl p-6 relative overflow-hidden">
+      <div className="bg-tesla-card border border-tesla-border rounded-2xl p-5 relative overflow-hidden">
         <div className="absolute -top-20 -right-20 w-48 h-48 bg-[#CC0000]/5 rounded-full blur-3xl pointer-events-none" />
         <div className="relative flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-[#CC0000]/10 border border-[#CC0000]/20 flex items-center justify-center">
@@ -151,28 +192,26 @@ export default function TrackingPage() {
           <h3 className="text-white font-semibold mb-2">Track Your Tesla</h3>
           <p className="text-gray-500 text-sm max-w-sm leading-relaxed">Enter your order number above to see real-time delivery updates, production progress, and estimated arrival.</p>
           <div className="flex items-center gap-4 mt-6 text-gray-600 text-xs">
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-              <span>Order Placed</span>
-            </div>
+            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-yellow-400" /><span>Order Placed</span></div>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-700"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-orange-400" />
-              <span>In Production</span>
-            </div>
+            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-orange-400" /><span>In Production</span></div>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-700"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-              <span>Delivered</span>
-            </div>
+            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-green-400" /><span>Delivered</span></div>
           </div>
         </div>
       )}
 
-      {/* Loading State */}
+      {/* Loading State with Tesla Logo */}
       {loading && (
         <div className="bg-tesla-card border border-tesla-border rounded-2xl p-12 flex flex-col items-center justify-center" style={{ animation: 'fadeSlideUp 0.3s ease-out' }}>
-          <div className="w-12 h-12 rounded-full border-2 border-[#CC0000]/20 border-t-[#CC0000] animate-spin mb-4" style={{ animationDuration: '1s' }} />
+          <div className="relative mb-4">
+            <div className="w-16 h-16 rounded-full border-2 border-[#CC0000]/20 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 5.362l2.475-3.026s4.245.09 8.471 2.054c-1.082 1.636-3.231 2.438-3.231 2.438-.146-1.439-1.154-1.79-4.354-1.79L12 24 8.619 5.034c-3.18 0-4.188.354-4.335 1.792 0 0-2.146-.795-3.229-2.43C5.28 2.431 9.525 2.34 9.525 2.34L12 5.362h-.004.004zm0-3.899c3.415-.03 7.326.528 11.328 2.28.535-.968.672-1.395.672-1.395C19.625.612 15.528.015 12 0 8.472.015 4.375.61 0 2.349c0 0 .195.525.672 1.396C4.674 1.989 8.585 1.435 12 1.46V1.463z" fill="#CC0000" />
+              </svg>
+            </div>
+            <div className="absolute inset-0 w-16 h-16 rounded-full border-2 border-transparent border-t-[#CC0000] animate-spin" style={{ animationDuration: '1.2s' }} />
+          </div>
           <p className="text-gray-400 text-sm">Looking up your order...</p>
         </div>
       )}
@@ -180,7 +219,8 @@ export default function TrackingPage() {
       {/* Tracking Results */}
       {trackingData && order && tracking && (
         <div className="space-y-4" style={{ animation: 'fadeSlideUp 0.6s ease-out' }}>
-          <div className="flex items-center justify-between">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <p className="text-gray-400 text-xs">
               Live tracking for <span className="text-white font-mono font-medium">#{order.orderNumber}</span>
             </p>
@@ -248,13 +288,35 @@ export default function TrackingPage() {
                   <div className="flex items-center gap-1.5">
                     <span className="text-gray-500 text-[11px]">Deposit:</span>
                     <span className={"text-[11px] font-medium " + (order.depositPaid ? 'text-green-400' : 'text-yellow-400')}>
-                      {Number(order.depositAmount).toLocaleString()} {order.depositPaid ? '(Paid)' : '(Unpaid)'}
+                      ${Number(order.depositAmount).toLocaleString()} {order.depositPaid ? '(Paid)' : '(Unpaid)'}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Current Milestone Detail Card (NEW) */}
+          {currentMilestone && order.status !== 'delivered' && order.status !== 'cancelled' && (
+            <div className="bg-gradient-to-r from-[#CC0000]/8 via-[#CC0000]/4 to-transparent border border-[#CC0000]/15 rounded-2xl p-5 relative overflow-hidden" style={{ animation: 'fadeSlideUp 0.8s ease-out' }}>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#CC0000]/5 rounded-full blur-2xl pointer-events-none" />
+              <div className="relative flex items-start gap-4">
+                <div className={"w-12 h-12 rounded-xl flex items-center justify-center shrink-0 " + (STATUS_COLORS[order.status]?.split(' ')[0] || 'bg-gray-700')}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: STATUS_ICON_SVG[STATUS_STEPS.find(s => s.value === order.status)?.icon || 'clipboard'] || '' }} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-white font-semibold text-sm">{currentMilestone.description}</h4>
+                  </div>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="text-gray-400 text-xs">Typical duration: <span className="text-gray-300 font-medium">{currentMilestone.duration}</span></span>
+                    <span className="text-gray-600">|</span>
+                    <span className="text-gray-400 text-xs">Step {tracking.currentStep + 1} of 5</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Route Progress Card */}
           <div className="bg-tesla-card border border-tesla-border rounded-2xl p-6 relative overflow-hidden">
@@ -292,7 +354,7 @@ export default function TrackingPage() {
                         {isComplete ? (
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
                         ) : (
-                          <span className={"text-xs font-bold " + (isCurrent ? step.color : 'text-gray-600')}>{idx + 1}</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={isCurrent ? step.color : 'text-gray-600'} dangerouslySetInnerHTML={{ __html: STATUS_ICON_SVG[step.icon] || '' }} />
                         )}
                         {isCurrent && !tracking.isCancelled && (
                           <span className={"absolute inset-[-4px] rounded-full border-2 " + step.border + ' opacity-40'} style={{ animation: 'pingPulse 2s cubic-bezier(0, 0, 0.2, 1) infinite' }} />
@@ -323,14 +385,14 @@ export default function TrackingPage() {
             )}
           </div>
 
-          {/* Details Grid */}
+          {/* Details Grid - Enhanced */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-tesla-card border border-tesla-border rounded-xl p-4 transition-all duration-300 hover:border-white/10 hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-center gap-2 mb-1.5">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M2 8h20" /></svg>
                 <span className="text-gray-500 text-[10px] font-medium">VIN Number</span>
               </div>
-              <p className="text-white text-sm font-medium">{tracking.vin || <span className="text-gray-600 text-xs">Assigned during production</span>}</p>
+              <p className="text-white text-sm font-medium font-mono">{tracking.vin || <span className="text-gray-600 text-xs">Assigned during production</span>}</p>
             </div>
             <div className="bg-tesla-card border border-tesla-border rounded-xl p-4 transition-all duration-300 hover:border-white/10 hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-center gap-2 mb-1.5">
@@ -363,7 +425,26 @@ export default function TrackingPage() {
             </div>
           </div>
 
-          {/* ETA Countdown */}
+          {/* Order Configuration Summary (NEW) */}
+          {(order.trackingInfo?.addons || order.trackingInfo?.addonsTotal) && (
+            <div className="bg-tesla-card border border-tesla-border rounded-xl p-4">
+              <h4 className="text-gray-400 text-[10px] font-semibold uppercase tracking-wider mb-2">Your Configuration</h4>
+              <div className="flex flex-wrap gap-2">
+                {order.trackingInfo.addons?.map((addon: string) => (
+                  <span key={addon} className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 border border-tesla-border text-gray-300 capitalize">
+                    {addon.replace(/_/g, ' ')}
+                  </span>
+                ))}
+                {order.trackingInfo.addonsTotal > 0 && (
+                  <span className="text-[10px] px-2.5 py-1 rounded-full bg-[#CC0000]/10 border border-[#CC0000]/20 text-[#CC0000] font-medium">
+                    +${Number(order.trackingInfo.addonsTotal).toLocaleString()} in upgrades
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ETA Countdown - Enhanced */}
           {getDaysUntilDelivery() !== null && !tracking.isCancelled && order.status !== 'delivered' && (
             <div className="bg-gradient-to-r from-[#CC0000]/10 via-[#CC0000]/5 to-transparent border border-[#CC0000]/20 rounded-xl px-5 py-4 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-[#CC0000]/15 flex items-center justify-center shrink-0">
@@ -438,7 +519,7 @@ export default function TrackingPage() {
             </div>
           )}
 
-          {/* Activity Timeline */}
+          {/* Activity Timeline - Enhanced */}
           {tracking.timeline && tracking.timeline.length > 0 && (
             <div className="bg-tesla-card border border-tesla-border rounded-2xl p-6">
               <h3 className="text-white font-semibold text-sm mb-4">Activity Timeline</h3>
@@ -447,6 +528,7 @@ export default function TrackingPage() {
                   const isLatest = idx === 0;
                   const stepInfo = STATUS_STEPS.find(s => s.value === entry.status);
                   const isLast = idx === tracking.timeline.length - 1;
+                  const milestoneInfo = MILESTONE_DETAILS[entry.status];
                   return (
                     <div key={idx} className="flex items-start gap-4 relative" style={{ animation: isLatest ? 'fadeSlideUp 0.5s ease-out' : undefined }}>
                       {!isLast && <div className="absolute left-[7px] top-6 bottom-0 w-px bg-white/10" />}
@@ -470,6 +552,9 @@ export default function TrackingPage() {
                           <span className={"text-xs font-medium " + (stepInfo?.color || (isLatest ? 'text-white' : 'text-gray-500'))}>
                             {STATUS_STEPS.find(s => s.value === entry.status)?.label || entry.status}
                           </span>
+                          {isLatest && autoRefresh && (
+                            <span className="text-[9px] text-gray-600">{formatElapsed(elapsed)}</span>
+                          )}
                         </div>
                         {entry.note && <p className="text-gray-400 text-[11px] mt-0.5">{entry.note}</p>}
                         <span className="text-gray-600 text-[10px]">{new Date(entry.timestamp).toLocaleString()}</span>
